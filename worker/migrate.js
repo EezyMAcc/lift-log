@@ -27,9 +27,9 @@ const WORKER_URL = 'https://liftlog-worker.11-api-prod-x7k2.workers.dev';
 
 // Maps Google Sheets set type names to the values the app uses
 const SET_TYPE_MAP = {
-  'warm up': 'warmup',
-  'working': 'working',
-  'back off': 'backoff'
+  'warm up': 'Warm Up',
+  'working': 'Working',
+  'back off': 'Back Off'
 };
 
 // Normalises exercise names — fixes capitalisation inconsistencies
