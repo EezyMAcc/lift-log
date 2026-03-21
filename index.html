@@ -93,6 +93,42 @@
   .save-btn{ width:100%; background:var(--accent); color:#0e0e0e; border:none; border-radius:var(--radius); font-family:'Barlow Condensed',sans-serif; font-weight:900; font-size:17px; letter-spacing:0.1em; text-transform:uppercase; padding:16px; cursor:pointer; transition:opacity 0.15s; }
   .save-btn:active{ opacity:0.8; }
   .save-btn.loading{ opacity:0.6; pointer-events:none; }
+
+  /* ── Modules screen ──────────────────────────────────────────────────────── */
+  #modulesScreen{ display:none; position:fixed; inset:0; background:var(--bg); z-index:9000; flex-direction:column; align-items:center; padding:60px 24px 32px; }
+  .modules-greeting{ font-family:'Barlow Condensed',sans-serif; font-size:28px; font-weight:700; color:var(--text); letter-spacing:0.04em; margin-bottom:48px; text-align:center; }
+  .modules-list{ width:100%; max-width:340px; display:flex; flex-direction:column; gap:16px; flex:1; }
+  .module-btn{ width:100%; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:28px 24px; display:flex; align-items:center; gap:18px; cursor:pointer; transition:background 0.15s, border-color 0.15s; text-align:left; }
+  .module-btn:active{ background:var(--surface2); border-color:var(--accent); }
+  .module-btn-icon{ font-size:28px; line-height:1; }
+  .module-btn-label{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:22px; letter-spacing:0.06em; text-transform:uppercase; color:var(--text); }
+  .modules-footer{ width:100%; max-width:340px; display:flex; justify-content:center; padding-bottom:8px; }
+  .coach-access-btn{ background:none; border:1px solid var(--border); border-radius:24px; padding:10px 28px; color:var(--muted); font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:14px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all 0.15s; }
+  .coach-access-btn:not(:disabled):hover{ border-color:var(--accent); color:var(--accent); }
+  .coach-access-btn:disabled{ opacity:0.35; cursor:default; }
+
+  /* ── Coach screen ────────────────────────────────────────────────────────── */
+  #coachScreen{ display:none; position:fixed; inset:0; background:var(--bg); z-index:9500; flex-direction:column; }
+  .coach-header{ display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .coach-header-title{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:18px; letter-spacing:0.08em; text-transform:uppercase; color:var(--text); }
+  .coach-skip-btn{ background:none; border:none; color:var(--muted); font-size:14px; font-family:'Barlow Condensed',sans-serif; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; cursor:pointer; padding:4px 0; }
+  .coach-skip-btn:active{ color:var(--text); }
+  .chat-area{ flex:1; overflow-y:auto; padding:20px 16px; display:flex; flex-direction:column; gap:12px; }
+  .chat-bubble{ max-width:82%; padding:11px 15px; border-radius:18px; font-size:15px; line-height:1.45; animation:bubble-in 0.12s ease; word-break:break-word; }
+  .chat-bubble.coach{ background:var(--surface2); color:var(--text); align-self:flex-start; border-bottom-left-radius:4px; }
+  .chat-bubble.user{ background:var(--accent); color:#0e0e0e; align-self:flex-end; border-bottom-right-radius:4px; }
+  @keyframes bubble-in{ from{ opacity:0; transform:scale(0.94); } to{ opacity:1; transform:scale(1); } }
+  .typing-indicator{ display:flex; gap:5px; align-items:center; padding:12px 16px; background:var(--surface2); border-radius:18px; border-bottom-left-radius:4px; align-self:flex-start; }
+  .typing-indicator span{ width:7px; height:7px; background:var(--muted); border-radius:50%; animation:typing-bounce 1.2s infinite; }
+  .typing-indicator span:nth-child(2){ animation-delay:0.2s; }
+  .typing-indicator span:nth-child(3){ animation-delay:0.4s; }
+  @keyframes typing-bounce{ 0%,60%,100%{ transform:translateY(0); opacity:0.4; } 30%{ transform:translateY(-5px); opacity:1; } }
+  .chat-input-area{ display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--border); flex-shrink:0; align-items:center; }
+  .chat-input{ flex:1; background:var(--surface); border:1px solid var(--border); border-radius:22px; padding:12px 18px; color:var(--text); font-size:15px; font-family:inherit; outline:none; -webkit-appearance:none; }
+  .chat-input:focus{ border-color:var(--accent); }
+  .chat-send-btn{ background:var(--accent); border:none; border-radius:50%; width:42px; height:42px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:opacity 0.15s; }
+  .chat-send-btn:disabled{ opacity:0.4; cursor:default; }
+  .chat-send-btn svg{ display:block; }
   .status-msg{ margin-top:12px; font-size:13px; text-align:center; letter-spacing:0.04em; min-height:18px; }
   .status-msg.success{ color:var(--accent); }
   .status-msg.error{ color:var(--red); }
@@ -158,6 +194,38 @@
       </button>
       <div id="existingUserStatus" style="margin-top:10px;font-size:12px;color:#555;min-height:18px;"></div>
     </div>
+  </div>
+</div>
+
+<!-- MODULES SCREEN -->
+<div id="modulesScreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9000;flex-direction:column;align-items:center;padding:60px 24px 32px;">
+  <div class="modules-greeting" id="modulesGreeting">Good to go.</div>
+  <div class="modules-list">
+    <button class="module-btn" onclick="openWorkoutModule()">
+      <span class="module-btn-icon">🏋️</span>
+      <span class="module-btn-label">Workout</span>
+    </button>
+  </div>
+  <div class="modules-footer">
+    <button class="coach-access-btn" id="coachAccessBtn" onclick="openCoachFromModules()">Coach</button>
+  </div>
+</div>
+
+<!-- COACH SCREEN -->
+<div id="coachScreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9500;flex-direction:column;">
+  <div class="coach-header">
+    <button class="coach-skip-btn" id="coachSkipBtn" onclick="skipCoaching()">Skip</button>
+    <div class="coach-header-title" id="coachHeaderTitle">Check In</div>
+    <div style="width:48px;"></div>
+  </div>
+  <div class="chat-area" id="chatArea"></div>
+  <div class="chat-input-area">
+    <input class="chat-input" id="chatInput" type="text" placeholder="Message…" autocomplete="off" autocorrect="off" onkeydown="if(event.key==='Enter')sendCoachMessage()">
+    <button class="chat-send-btn" id="chatSendBtn" onclick="sendCoachMessage()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0e0e0e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
   </div>
 </div>
 
@@ -663,6 +731,8 @@ async function saveSession() {
     if (!res.ok) throw new Error('Server error');
     showStatus('Session saved ✓', 'success');
     clearSession();
+    // Trigger post-session coaching automatically
+    await triggerPostSessionCoach(sessionId);
   } catch(e) {
     console.error('[saveSession] POST /save failed:', e);
     showStatus('Could not reach server — your sets are held locally. Try again.', 'error');
@@ -1054,13 +1124,221 @@ async function handleExistingUser() {
   }
 }
 
+// ── COACHING ──────────────────────────────────────────────────────────────────
+
+let coachPhase    = null;  // 'pre' | 'post'
+let coachSessionId = null; // 'pre_YYYY-MM-DD' for pre, workout UUID for post
+let coachDate     = null;  // 'YYYY-MM-DD'
+let coachingFromModules = false; // true when opened via the modules coach button
+
+function todayISO() {
+  return new Date().toISOString().split('T')[0];
+}
+
+// Show the modules screen, update greeting and coach button state.
+async function showModulesScreen() {
+  document.getElementById('loginScreen').style.display    = 'none';
+  document.getElementById('coachScreen').style.display    = 'none';
+  document.getElementById('modulesScreen').style.display  = 'flex';
+
+  const name = localStorage.getItem('liftlog_user_name') || '';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+  document.getElementById('modulesGreeting').textContent =
+    name ? `${greeting}, ${name}.` : `${greeting}.`;
+
+  // Grey out coach button if pre-session coaching already done today
+  try {
+    const status = await fetch(`${WORKER_URL}/coaching/status?date=${todayISO()}`, {
+      headers: authHeaders(),
+    }).then(r => r.json());
+    const done = !!(status.pre_complete || status.coaching_skipped);
+    const btn = document.getElementById('coachAccessBtn');
+    btn.disabled = done;
+  } catch {
+    // Non-fatal — leave button enabled
+  }
+}
+
+// Called when user taps the Workout module button.
+function openWorkoutModule() {
+  document.getElementById('modulesScreen').style.display = 'none';
+  switchView('log');
+}
+
+// Called when user taps coach button on modules screen (pre-session, already skipped or
+// completed users can't tap — button is disabled).
+async function openCoachFromModules() {
+  coachingFromModules = true;
+  await startCoachingSession('pre', `pre_${todayISO()}`, todayISO());
+}
+
+// Core function: opens the coach screen for a given phase + session.
+async function startCoachingSession(phase, sessionId, date) {
+  coachPhase     = phase;
+  coachSessionId = sessionId;
+  coachDate      = date;
+
+  // Configure header
+  document.getElementById('coachHeaderTitle').textContent = phase === 'pre' ? 'Check In' : 'Session Review';
+  document.getElementById('coachSkipBtn').style.display   = phase === 'pre' ? 'block' : 'none';
+
+  // Show coach screen
+  document.getElementById('modulesScreen').style.display = 'none';
+  document.getElementById('coachScreen').style.display   = 'flex';
+
+  // Clear chat area and show loading state
+  const chatArea = document.getElementById('chatArea');
+  chatArea.innerHTML = '';
+  showTypingIndicator();
+  setChatInputEnabled(false);
+
+  try {
+    const data = await fetch(`${WORKER_URL}/coaching/start`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ date, phase, sessionId }),
+    }).then(r => r.json());
+
+    hideTypingIndicator();
+
+    // Render all messages (handles resume case)
+    chatArea.innerHTML = '';
+    for (const msg of data.messages ?? []) {
+      appendChatBubble(msg.role === 'assistant' ? 'coach' : 'user', msg.content);
+    }
+
+    if (data.status === 'complete') {
+      setChatInputEnabled(false);
+    } else {
+      setChatInputEnabled(true);
+      document.getElementById('chatInput').focus();
+    }
+  } catch (err) {
+    hideTypingIndicator();
+    appendChatBubble('coach', 'Could not connect to coach. Check your connection and try again.');
+    console.error('[startCoachingSession] error:', err);
+  }
+}
+
+// Send a message in the coaching chat.
+async function sendCoachMessage() {
+  const input = document.getElementById('chatInput');
+  const content = input.value.trim();
+  if (!content) return;
+
+  input.value = '';
+  appendChatBubble('user', content);
+  setChatInputEnabled(false);
+  showTypingIndicator();
+
+  try {
+    const data = await fetch(`${WORKER_URL}/coaching/message`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        date: coachDate,
+        phase: coachPhase,
+        sessionId: coachSessionId,
+        content,
+      }),
+    }).then(r => r.json());
+
+    hideTypingIndicator();
+
+    if (data.error) {
+      appendChatBubble('coach', 'Something went wrong — please try again.');
+      setChatInputEnabled(true);
+      return;
+    }
+
+    if (data.reply) appendChatBubble('coach', data.reply);
+
+    if (data.complete) {
+      // Scores saved — transition back to modules after a short pause
+      setTimeout(() => {
+        document.getElementById('coachScreen').style.display = 'none';
+        if (coachPhase === 'pre') {
+          showModulesScreen();
+        } else {
+          // Post-session complete — return to workout log view
+          document.getElementById('coachScreen').style.display = 'none';
+          switchView('log');
+        }
+      }, 2200);
+    } else {
+      setChatInputEnabled(true);
+      document.getElementById('chatInput').focus();
+    }
+  } catch (err) {
+    hideTypingIndicator();
+    appendChatBubble('coach', 'Something went wrong — please try again.');
+    setChatInputEnabled(true);
+    console.error('[sendCoachMessage] error:', err);
+  }
+}
+
+// Skip pre-session coaching and go straight to modules.
+async function skipCoaching() {
+  setChatInputEnabled(false);
+  document.getElementById('coachSkipBtn').disabled = true;
+  try {
+    await fetch(`${WORKER_URL}/coaching/skip`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ date: todayISO() }),
+    });
+  } catch {
+    // Non-fatal — skip locally even if server call fails
+  }
+  document.getElementById('coachScreen').style.display = 'none';
+  showModulesScreen();
+}
+
+// Triggered automatically after a successful workout save.
+async function triggerPostSessionCoach(sessionId) {
+  coachingFromModules = false;
+  await startCoachingSession('post', sessionId, todayISO());
+}
+
+// ── Chat UI helpers ────────────────────────────────────────────────────────
+
+function appendChatBubble(side, text) {
+  const chatArea = document.getElementById('chatArea');
+  const el = document.createElement('div');
+  el.className = `chat-bubble ${side}`;
+  el.textContent = text;
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function showTypingIndicator() {
+  if (document.getElementById('typingIndicator')) return;
+  const chatArea = document.getElementById('chatArea');
+  const el = document.createElement('div');
+  el.id = 'typingIndicator';
+  el.className = 'typing-indicator';
+  el.innerHTML = '<span></span><span></span><span></span>';
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function hideTypingIndicator() {
+  document.getElementById('typingIndicator')?.remove();
+}
+
+function setChatInputEnabled(enabled) {
+  document.getElementById('chatInput').disabled  = !enabled;
+  document.getElementById('chatSendBtn').disabled = !enabled;
+}
+
 // ── BOOT ─────────────────────────────────────────────────────────────────────
 // Shared startup sequence used both on normal load (userId already in
 // localStorage) and immediately after a successful login.
 async function bootApp() {
+  // Load workout state in the background
   await loadState();
 
-  // ensure every exercise has at least 1 blank row
   exercises.forEach(e => {
     const ls = getLiftState(e.key);
     if (!ls.warmup.length)  { ls.warmup.push({weight:'',reps:'',partials:''}); }
@@ -1072,6 +1350,27 @@ async function bootApp() {
   persistState();
   updateLiftLabels();
   await renderAll();
+
+  // Check coaching status and route accordingly
+  try {
+    const today = todayISO();
+    const status = await fetch(`${WORKER_URL}/coaching/status?date=${today}`, {
+      headers: authHeaders(),
+    }).then(r => r.json());
+
+    const coachingDone = !!(status.pre_complete || status.coaching_skipped);
+
+    if (!coachingDone) {
+      // First open of the day — show coach screen
+      await startCoachingSession('pre', `pre_${today}`, today);
+    } else {
+      // Coaching already done — go straight to modules
+      showModulesScreen();
+    }
+  } catch {
+    // If status check fails, skip straight to modules (non-fatal)
+    showModulesScreen();
+  }
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────

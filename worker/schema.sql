@@ -1,18 +1,14 @@
 -- ============================================================
--- Lift Log — D1 Schema v2
+-- Lift Log — D1 Schema v3
 -- ============================================================
--- Changes from v1:
---   • users table added (simple token-based auth)
---   • exercises scoped to a userId
---   • sessions table added (replaces date-grouping in worker)
---   • sets now reference sessionId, not date + liftKey directly
---   • daily_wellness table added for coach scoring
---   • rpe + notes added to sessions for coach analysis
+-- Changes from v2:
+--   • sessions: added post-session wellness score columns
+--   • daily_wellness: renamed score columns (snake_case, feed vs nutrition),
+--     added rationale columns, coaching state flags
+--   • coaching_conversations: new table for AI coach message history
 -- ============================================================
 
 -- Users
--- One row per person. id is a client-generated UUID stored in
--- localStorage. No passwords — simple token-based auth for now.
 CREATE TABLE IF NOT EXISTS users (
   id        TEXT PRIMARY KEY,
   name      TEXT NOT NULL,
@@ -20,7 +16,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Exercises
--- Scoped to a user. key is a clean slug e.g. "incline_press".
 CREATE TABLE IF NOT EXISTS exercises (
   key    TEXT NOT NULL,
   userId TEXT NOT NULL REFERENCES users(id),
@@ -29,43 +24,70 @@ CREATE TABLE IF NOT EXISTS exercises (
 );
 
 -- Sessions
--- One row per workout session. Replaces the old approach of
--- grouping sets by date in the worker.
+-- One row per workout session.
+-- Post-session wellness scores stored here (per-session, not per-day).
 CREATE TABLE IF NOT EXISTS sessions (
-  id        TEXT PRIMARY KEY,           -- client-generated UUID
-  userId    TEXT NOT NULL REFERENCES users(id),
-  liftKey   TEXT NOT NULL,
-  date      TEXT NOT NULL,             -- YYYY-MM-DD
-  rpe       INTEGER,                   -- 1–10, optional
-  notes     TEXT,                      -- free text, optional
-  createdAt TEXT NOT NULL              -- ISO timestamp
+  id                 TEXT PRIMARY KEY,
+  userId             TEXT NOT NULL REFERENCES users(id),
+  liftKey            TEXT NOT NULL,
+  date               TEXT NOT NULL,             -- YYYY-MM-DD
+  rpe                INTEGER,                   -- 1–10, optional
+  notes              TEXT,
+  exertion_post      INTEGER,                   -- 1–5, post-session score
+  energy_post        INTEGER,                   -- 1–5, post-session score
+  mood_post          INTEGER,                   -- 1–5, post-session score
+  exertion_rationale TEXT,
+  energy_rationale   TEXT,
+  mood_rationale     TEXT,
+  createdAt          TEXT NOT NULL
 );
 
 -- Sets
--- One row per set. References its parent session.
--- weight stored as REAL, reps as INTEGER throughout.
--- partials is NULL when not applicable (not empty string).
 CREATE TABLE IF NOT EXISTS sets (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   sessionId TEXT    NOT NULL REFERENCES sessions(id),
-  type      TEXT    NOT NULL,          -- "Warm Up" | "Working" | "Back Off"
+  type      TEXT    NOT NULL,                   -- "Warm Up" | "Working" | "Back Off"
   setNumber INTEGER NOT NULL,
   weight    REAL    NOT NULL,
   reps      INTEGER NOT NULL,
-  partials  INTEGER                    -- NULL if none, integer if present
+  partials  INTEGER                             -- NULL if none
 );
 
 -- Daily Wellness
--- One row per user per day. Populated by the agent coach.
--- Separate from sessions — exists on rest days too.
+-- One row per user per day. Pre-session scores only (sleep, feed, stress).
+-- Post-session scores live on the sessions table.
 CREATE TABLE IF NOT EXISTS daily_wellness (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId         TEXT    NOT NULL REFERENCES users(id),
-  date           TEXT    NOT NULL,    -- YYYY-MM-DD
-  sleepScore     INTEGER,             -- 1–10
-  stressScore    INTEGER,             -- 1–10
-  nutritionScore INTEGER,             -- 1–10
-  notes          TEXT,
-  createdAt      TEXT    NOT NULL,
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId           TEXT    NOT NULL REFERENCES users(id),
+  date             TEXT    NOT NULL,            -- YYYY-MM-DD
+  sleep_pre        INTEGER,                     -- 1–5
+  feed_pre         INTEGER,                     -- 1–5
+  stress_pre       INTEGER,                     -- 1–5
+  sleep_rationale  TEXT,
+  feed_rationale   TEXT,
+  stress_rationale TEXT,
+  coaching_skipped INTEGER DEFAULT 0,           -- 1 if user tapped Skip
+  pre_complete     INTEGER DEFAULT 0,           -- 1 once scores confirmed
+  notes            TEXT,
+  createdAt        TEXT NOT NULL,
   UNIQUE(userId, date)
+);
+
+-- Coaching Conversations
+-- Stores full message history for AI coaching sessions.
+-- Enables tab-close recovery and audit trail.
+-- sessionId convention:
+--   pre-session  → 'pre_YYYY-MM-DD'
+--   post-session → the workout session UUID
+CREATE TABLE IF NOT EXISTS coaching_conversations (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId    TEXT    NOT NULL REFERENCES users(id),
+  date      TEXT    NOT NULL,                   -- YYYY-MM-DD
+  phase     TEXT    NOT NULL,                   -- 'pre' | 'post'
+  sessionId TEXT    NOT NULL,                   -- see convention above
+  messages  TEXT    NOT NULL DEFAULT '[]',      -- JSON array of {role, content}
+  status    TEXT    NOT NULL DEFAULT 'in_progress', -- 'in_progress'|'complete'|'skipped'
+  createdAt TEXT    NOT NULL,
+  updatedAt TEXT    NOT NULL,
+  UNIQUE(userId, sessionId, phase)
 );
