@@ -354,6 +354,24 @@ const WORKER_URL = 'https://liftlog-worker.11-api-prod-x7k2.workers.dev';
 // ── USER IDENTITY ───────────────────────────────────────────────────────────
 // Simple token-based auth. userId is generated once on first login and stored
 // in localStorage. Sent as X-User-Id header with every server request.
+//
+// URL seeding: visiting the app with ?uid=<id>&uname=<name> stores that
+// identity in localStorage and strips the params from the URL.
+// Used for first-time setup on devices where the console isn't accessible
+// (e.g. iPhone Safari). Also the foundation for magic-link login later.
+(function seedFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const uid    = params.get('uid');
+  const uname  = params.get('uname');
+  if (uid) {
+    localStorage.setItem('liftlog_user_id',   uid);
+    if (uname) localStorage.setItem('liftlog_user_name', uname);
+    // Strip params from URL so they don't sit in browser history
+    const clean = window.location.pathname;
+    window.history.replaceState(null, '', clean);
+  }
+})();
+
 let userId = localStorage.getItem('liftlog_user_id') || null;
 
 function authHeaders() {
