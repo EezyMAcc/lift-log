@@ -133,6 +133,22 @@
 </head>
 <body>
 
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" style="display:none;position:fixed;inset:0;background:#111;z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:32px;">
+  <div style="text-align:center;max-width:300px;width:100%;">
+    <div style="font-size:52px;margin-bottom:16px;">🏋️</div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:40px;letter-spacing:0.06em;color:#f0f0f0;margin-bottom:6px;">LIFT LOG</div>
+    <div style="font-size:13px;color:#555;letter-spacing:0.05em;margin-bottom:52px;">Track your lifts. Progress with intent.</div>
+    <input id="loginName" type="text" placeholder="What's your name?" autocomplete="off" autocorrect="off"
+      style="width:100%;box-sizing:border-box;padding:16px;background:#1c1c1c;border:1px solid #2a2a2a;border-radius:10px;color:#f0f0f0;font-size:16px;font-family:Inter,sans-serif;margin-bottom:14px;outline:none;-webkit-appearance:none;">
+    <button id="loginBtn" onclick="handleLogin()"
+      style="width:100%;padding:16px;background:#e8c840;border:none;border-radius:10px;color:#111;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;">
+      Get Started
+    </button>
+    <div id="loginStatus" style="margin-top:16px;font-size:12px;color:#555;min-height:18px;"></div>
+  </div>
+</div>
+
 <!-- DRAWER OVERLAY -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
 
@@ -335,6 +351,15 @@
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 const WORKER_URL = 'https://liftlog-worker.11-api-prod-x7k2.workers.dev';
 
+// ── USER IDENTITY ───────────────────────────────────────────────────────────
+// Simple token-based auth. userId is generated once on first login and stored
+// in localStorage. Sent as X-User-Id header with every server request.
+let userId = localStorage.getItem('liftlog_user_id') || null;
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'X-User-Id': userId };
+}
+
 // ── STATE ──────────────────────────────────────────────────────────────────
 let currentLift = null;
 let currentView = 'log';
@@ -352,7 +377,7 @@ async function loadState() {
   let fetchError = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${WORKER_URL}/exercises`);
+      const res = await fetch(`${WORKER_URL}/exercises`, { headers: { 'X-User-Id': userId } });
       if (!res.ok) throw new Error('Server error ' + res.status);
       const data = await res.json();
       exercises = Array.isArray(data) ? data : [];
@@ -444,7 +469,7 @@ async function addExercise() {
   try {
     const res = await fetch(`${WORKER_URL}/exercises`, {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: authHeaders(),
       body: JSON.stringify({ key, name })
     });
     if (!res.ok) throw new Error('Server error');
@@ -464,7 +489,7 @@ async function removeExercise(key) {
   const ex = exercises.find(e => e.key === key);
   if (!confirm('Remove "' + (ex ? ex.name : key) + '"? Its session history on the server will also be deleted.')) return;
   try {
-    const res = await fetch(`${WORKER_URL}/exercises/${encodeURIComponent(key)}`, { method: 'DELETE' });
+    const res = await fetch(`${WORKER_URL}/exercises/${encodeURIComponent(key)}`, { method: 'DELETE', headers: { 'X-User-Id': userId } });
     if (!res.ok) throw new Error('Server error');
     exercises = exercises.filter(e => e.key !== key);
     delete liftState[key];
@@ -577,21 +602,45 @@ async function saveSession() {
   const date = isoDate();
   const ls = getLiftState(currentLift);
   const sets = [];
-  ls.warmup.forEach((s,i)=>{ if(s.weight||s.reps) sets.push({type:'Warm Up',setNumber:i+1,weight:s.weight||'',reps:s.reps||'',partials:s.partials||''}); });
-  ls.working.forEach((s,i)=>{ if(s.weight||s.reps) sets.push({type:'Working',setNumber:i+1,weight:s.weight||'',reps:s.reps||'',partials:s.partials||''}); });
-  ls.backoff.forEach((s,i)=>{ if(s.weight||s.reps) sets.push({type:'Back Off',setNumber:i+1,weight:s.weight||'',reps:s.reps||'',partials:s.partials||''}); });
-  if (!sets.length) { showStatus('No sets to save yet.','error'); return; }
-  const btn=document.getElementById('saveBtn');
-  btn.classList.add('loading'); btn.textContent='Saving…';
+
+  function buildSet(s, type, i) {
+    const w = parseFloat(s.weight);
+    const r = parseFloat(s.reps);
+    if (!isFinite(w) || !isFinite(r) || w <= 0) return; // skip blank or invalid
+    const partials = (s.partials !== undefined && s.partials !== null && s.partials !== '')
+      ? Math.round(parseFloat(s.partials)) : null;
+    sets.push({ type, setNumber: i + 1, weight: w, reps: Math.round(r), partials });
+  }
+
+  ls.warmup.forEach((s,i) => buildSet(s, 'Warm Up', i));
+  ls.working.forEach((s,i) => buildSet(s, 'Working', i));
+  ls.backoff.forEach((s,i) => buildSet(s, 'Back Off', i));
+
+  if (!sets.length) { showStatus('No sets to save yet.', 'error'); return; }
+
+  const sessionId = crypto.randomUUID();
+  const btn = document.getElementById('saveBtn');
+  btn.classList.add('loading');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
   try {
-    const res = await fetch(WORKER_URL+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,liftKey:currentLift,lift:liftName,sets})});
+    const res = await fetch(WORKER_URL + '/save', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ sessionId, date, liftKey: currentLift, lift: liftName, sets })
+    });
     if (!res.ok) throw new Error('Server error');
-    showStatus('Session saved ✓','success'); clearSession();
+    showStatus('Session saved ✓', 'success');
+    clearSession();
   } catch(e) {
     console.error('[saveSession] POST /save failed:', e);
-    showStatus('Could not reach server — your sets are held locally. Try again.','error');
+    showStatus('Could not reach server — your sets are held locally. Try again.', 'error');
+  } finally {
+    btn.classList.remove('loading');
+    btn.textContent = 'Save Session';
+    btn.disabled = false;
   }
-  finally { btn.classList.remove('loading'); btn.textContent='Save Session'; }
 }
 
 function clearSession() {
@@ -602,10 +651,14 @@ function clearSession() {
 // ── HISTORY ───────────────────────────────────────────────────────────────────
 async function getHistory(liftKey) {
   try {
-    const res = await fetch(`${WORKER_URL}/history?liftKey=${encodeURIComponent(liftKey)}`);
+    const res = await fetch(`${WORKER_URL}/history?liftKey=${encodeURIComponent(liftKey)}`, {
+      headers: { 'X-User-Id': userId }
+    });
     if (!res.ok) return [];
     const data = await res.json();
-    return Array.isArray(data) ? data.reverse() : [];
+    // Server returns oldest-first (ORDER BY date ASC, createdAt ASC).
+    // No reversal — charts draw left→right as oldest→newest, Last Session reads [length-1].
+    return Array.isArray(data) ? data : [];
   } catch(e) {
     console.error('[getHistory] fetch /history failed:', e);
     return [];
@@ -631,6 +684,8 @@ async function renderCharts() {
     if(!ws.length) return null;
     const weights=ws.map(s=>parseFloat(s.weight));
     const reps=ws.map(s=>parseFloat(s.reps));
+    // Skip sessions containing any invalid number — guards against bad data in chart maths
+    if(weights.some(isNaN)||reps.some(isNaN)) return null;
     const maxW=Math.max(...weights);
     const lastW=parseFloat(ws[ws.length-1].weight); // last logged working set weight
     const lastR=parseFloat(ws[ws.length-1].reps);
@@ -706,7 +761,7 @@ function calcProjection(sessions) {
 
 function calcRepsAtMax(sessions,maxW) {
   return sessions.map(s=>{
-    const atMax=s.sets.filter(ws=>parseFloat(ws.weight)===maxW);
+    const atMax=s.sets.filter(ws=>Math.abs(parseFloat(ws.weight)-maxW)<0.01);
     if(!atMax.length) return null;
     return {date:s.date,reps:atMax.reduce((sum,ws)=>sum+parseFloat(ws.reps||0),0)};
   }).filter(Boolean);
@@ -825,12 +880,14 @@ async function restoreFromServer() {
   });
 
   try {
-    const res = await fetch(`${WORKER_URL}/restore`, { method: 'GET', mode: 'cors' });
+    const res = await fetch(`${WORKER_URL}/restore`, { method: 'GET', mode: 'cors', headers: { 'X-User-Id': userId } });
     if (!res.ok) throw new Error('Network error');
     const data = await res.json();
 
     if (!data.exercises || !data.exercises.length) {
-      showStatus('No data found on server.', 'error');
+      currentLift = null;
+      switchView('empty');
+      showStatus('No exercises found on server.', 'error');
       return;
     }
 
@@ -850,7 +907,7 @@ async function restoreFromServer() {
     await renderAll();
 
     if (settingsPanel) settingsPanel.classList.remove('open');
-    showStatus(`Restored ${data.exercises.length} exercise${data.exercises.length !== 1 ? 's' : ''} from server ✓`, 'success');
+    showStatus(`Restored ${data.exercises.length} exercise${data.exercises.length !== 1 ? 's' : ''} ✓ — tap Progress or Last to see your history.`, 'success');
 
   } catch(err) {
     console.error('[restoreFromServer] fetch /restore failed:', err);
@@ -894,25 +951,78 @@ function showStatus(msg, type) {
   });
 }
 
-// ── INIT ────────────────────────────────────────────────────────────────────
-document.getElementById('sessionDate').textContent = todayStr();
-document.getElementById('chartsDate').textContent  = todayStr();
+// ── LOGIN ────────────────────────────────────────────────────────────────────
+async function handleLogin() {
+  const nameInput = document.getElementById('loginName');
+  const statusEl  = document.getElementById('loginStatus');
+  const btn       = document.getElementById('loginBtn');
+  const name = nameInput.value.trim();
 
-(async () => {
+  if (!name) { statusEl.textContent = 'Please enter your name.'; return; }
+
+  btn.textContent = 'Setting up…';
+  btn.disabled = true;
+  statusEl.textContent = '';
+
+  const id = crypto.randomUUID();
+
+  try {
+    const res = await fetch(`${WORKER_URL}/user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name })
+    });
+    if (!res.ok) throw new Error('Server error ' + res.status);
+
+    // Persist identity
+    userId = id;
+    localStorage.setItem('liftlog_user_id', id);
+    localStorage.setItem('liftlog_user_name', name);
+
+    // Hide login, boot the app
+    document.getElementById('loginScreen').style.display = 'none';
+    await bootApp();
+
+  } catch(e) {
+    console.error('[handleLogin] failed:', e);
+    statusEl.textContent = 'Could not connect — check your connection and try again.';
+    btn.textContent = 'Get Started';
+    btn.disabled = false;
+  }
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+// Shared startup sequence used both on normal load (userId already in
+// localStorage) and immediately after a successful login.
+async function bootApp() {
   await loadState();
 
-  // ensure newly added exercises have at least 1 blank row
+  // ensure every exercise has at least 1 blank row
   exercises.forEach(e => {
     const ls = getLiftState(e.key);
-    if (!ls.warmup.length) { ls.warmup.push({weight:'',reps:'',partials:''}); }
+    if (!ls.warmup.length)  { ls.warmup.push({weight:'',reps:'',partials:''}); }
     if (!ls.working.length) { ls.working.push({weight:'',reps:'',partials:''}); }
-    if (!ls.backoff) ls.backoff = [];
+    if (!ls.backoff)          ls.backoff = [];
     if (!ls.backoff.length) { ls.backoff.push({weight:'',reps:'',partials:''}); }
   });
 
   persistState();
   updateLiftLabels();
   await renderAll();
+}
+
+// ── INIT ────────────────────────────────────────────────────────────────────
+document.getElementById('sessionDate').textContent = todayStr();
+document.getElementById('chartsDate').textContent  = todayStr();
+
+(async () => {
+  if (!userId) {
+    // First time — show login screen, don't boot app yet
+    document.getElementById('loginScreen').style.display = 'flex';
+    return;
+  }
+  // Returning user — boot straight into the app
+  await bootApp();
 })();
 </script>
 </body>
