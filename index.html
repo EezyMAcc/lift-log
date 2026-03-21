@@ -146,6 +146,18 @@
       Get Started
     </button>
     <div id="loginStatus" style="margin-top:16px;font-size:12px;color:#555;min-height:18px;"></div>
+    <div style="margin-top:24px;">
+      <button onclick="toggleExistingUser()" style="background:none;border:none;color:#555;font-size:13px;cursor:pointer;text-decoration:underline;padding:0;">Already a user?</button>
+    </div>
+    <div id="existingUserPanel" style="display:none;margin-top:14px;width:100%;">
+      <input id="existingUserId" type="text" placeholder="Paste your user ID" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        style="width:100%;box-sizing:border-box;padding:14px;background:#1c1c1c;border:1px solid #2a2a2a;border-radius:10px;color:#f0f0f0;font-size:13px;font-family:'Courier New',monospace;margin-bottom:10px;outline:none;-webkit-appearance:none;">
+      <button onclick="handleExistingUser()"
+        style="width:100%;padding:14px;background:#2a2a2a;border:1px solid #444;border-radius:10px;color:#f0f0f0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;">
+        Sign In
+      </button>
+      <div id="existingUserStatus" style="margin-top:10px;font-size:12px;color:#555;min-height:18px;"></div>
+    </div>
   </div>
 </div>
 
@@ -1006,6 +1018,39 @@ async function handleLogin() {
     statusEl.textContent = 'Could not connect — check your connection and try again.';
     btn.textContent = 'Get Started';
     btn.disabled = false;
+  }
+}
+
+function toggleExistingUser() {
+  const panel = document.getElementById('existingUserPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+async function handleExistingUser() {
+  const input    = document.getElementById('existingUserId');
+  const statusEl = document.getElementById('existingUserStatus');
+  const id = input.value.trim();
+
+  if (!id) { statusEl.textContent = 'Please paste your user ID.'; return; }
+
+  statusEl.textContent = 'Checking…';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/user/${encodeURIComponent(id)}`);
+    if (res.status === 404) { statusEl.textContent = 'User ID not found — check and try again.'; return; }
+    if (!res.ok) throw new Error('Server error ' + res.status);
+
+    const data = await res.json();
+    userId = id;
+    localStorage.setItem('liftlog_user_id', id);
+    localStorage.setItem('liftlog_user_name', data.name || '');
+
+    document.getElementById('loginScreen').style.display = 'none';
+    await bootApp();
+
+  } catch(e) {
+    console.error('[handleExistingUser] failed:', e);
+    statusEl.textContent = 'Could not connect — check your connection and try again.';
   }
 }
 

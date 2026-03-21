@@ -125,6 +125,20 @@ async function handlePostUser(request, env) {
 }
 
 /**
+ * GET /user/:id
+ * Looks up an existing user by ID. Used by the "Already a user?" sign-in flow.
+ * Returns 404 if not found.
+ */
+async function handleGetUser(id, env) {
+  const row = await env.DB.prepare(
+    "SELECT id, name FROM users WHERE id = ?"
+  ).bind(id).first();
+
+  if (!row) return jsonResponse({ error: "User not found" }, 404);
+  return jsonResponse({ id: row.id, name: row.name });
+}
+
+/**
  * GET /exercises
  * Returns all exercises for the authenticated user.
  */
@@ -523,6 +537,14 @@ export default {
     // --- /user ---
     if (pathname === "/user") {
       if (method === "POST") return handlePostUser(request, env);
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+
+    // --- /user/:id ---
+    const userIdMatch = pathname.match(/^\/user\/(.+)$/);
+    if (userIdMatch) {
+      const id = decodeURIComponent(userIdMatch[1]);
+      if (method === "GET") return handleGetUser(id, env);
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
