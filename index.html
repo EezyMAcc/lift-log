@@ -252,9 +252,14 @@
 <div id="view-log" class="view active">
   <div class="header">
     <div class="header-top">
-      <button class="burger-btn" onclick="openDrawer()">
-        <span></span><span></span><span></span>
-      </button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button onclick="showModulesScreen()" style="background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;color:var(--muted);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button class="burger-btn" onclick="openDrawer()">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
       <div class="app-title">Lift Log</div>
       <div style="display:flex;align-items:center;gap:12px;">
         <div class="session-date" id="sessionDate"></div>
