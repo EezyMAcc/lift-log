@@ -10,9 +10,12 @@
 
 -- Users
 CREATE TABLE IF NOT EXISTS users (
-  id        TEXT PRIMARY KEY,
-  name      TEXT NOT NULL,
-  createdAt TEXT NOT NULL
+  id                  TEXT PRIMARY KEY,
+  name                TEXT NOT NULL,
+  createdAt           TEXT NOT NULL,
+  profile_text        TEXT,                -- AI-maintained prose profile (null until onboarding complete)
+  profile_updated_at  TEXT,                -- ISO timestamp of last profile update
+  onboarding_complete INTEGER DEFAULT 0    -- 1 once journal onboarding conversation is done
 );
 
 -- Exercises
@@ -70,6 +73,50 @@ CREATE TABLE IF NOT EXISTS daily_wellness (
   pre_complete     INTEGER DEFAULT 0,           -- 1 once scores confirmed
   notes            TEXT,
   createdAt        TEXT NOT NULL,
+  UNIQUE(userId, date)
+);
+
+-- Journal Onboarding Conversations
+-- One row per user. Stores message history for the one-time onboarding conversation.
+CREATE TABLE IF NOT EXISTS journal_onboarding_conversations (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId    TEXT    NOT NULL REFERENCES users(id),
+  messages  TEXT    NOT NULL DEFAULT '[]',      -- JSON array of {role, content}
+  status    TEXT    NOT NULL DEFAULT 'in_progress', -- 'in_progress' | 'complete'
+  createdAt TEXT    NOT NULL,
+  updatedAt TEXT    NOT NULL
+);
+
+-- Journal Prompts
+-- One row per user per day. Cached prompts — generated once, reused on subsequent opens.
+CREATE TABLE IF NOT EXISTS journal_prompts (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId          TEXT    NOT NULL REFERENCES users(id),
+  date            TEXT    NOT NULL,             -- YYYY-MM-DD
+  prompt_1        TEXT,                         -- training/progress prompt
+  prompt_2        TEXT,                         -- profile-informed prompt
+  prompt_3        TEXT,                         -- open/broader prompt
+  refresh_count_1 INTEGER DEFAULT 0,
+  refresh_count_2 INTEGER DEFAULT 0,
+  refresh_count_3 INTEGER DEFAULT 0,
+  generatedAt     TEXT    NOT NULL,
+  UNIQUE(userId, date)
+);
+
+-- Journal Entries
+-- One row per submitted entry. Stores all three prompt/response pairs.
+-- UNIQUE(userId, date) enforces one submission per day at the database level.
+CREATE TABLE IF NOT EXISTS journal_entries (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId        TEXT    NOT NULL REFERENCES users(id),
+  date          TEXT    NOT NULL,               -- YYYY-MM-DD — UNIQUE with userId
+  prompt_1_text TEXT,
+  response_1    TEXT,
+  prompt_2_text TEXT,
+  response_2    TEXT,
+  prompt_3_text TEXT,
+  response_3    TEXT,
+  createdAt     TEXT    NOT NULL,
   UNIQUE(userId, date)
 );
 

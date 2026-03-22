@@ -16,6 +16,15 @@
  *   POST   /coaching/start               — start or resume a coaching conversation
  *   POST   /coaching/message             — send a user message, get coach reply
  *   POST   /coaching/skip                — mark today's pre-session as skipped
+ *   GET    /journal/onboarding/status    — has onboarding been completed?
+ *   POST   /journal/onboarding/message   — send a message in the onboarding conversation
+ *   GET    /journal/status?date=x        — routing state for the journal module
+ *   GET    /journal/prompts?date=x       — get (or generate) today's prompts
+ *   POST   /journal/prompts/refresh      — regenerate a single prompt
+ *   POST   /journal/entry                — save a submitted journal entry
+ *   GET    /journal/history              — all past entries, newest first
+ *   GET    /profile                      — get user profile text
+ *   PUT    /profile                      — manually update user profile text
  */
 
 // ── Prompt constants ─────────────────────────────────────────────────────────
@@ -196,7 +205,114 @@ function isPositiveNumber(value) {
   return isValidNumber(value) && Number(value) > 0;
 }
 
-// ── Claude API helper ────────────────────────────────────────────────────────
+// ── Journal prompt constants ──────────────────────────────────────────────────
+
+const ONBOARDING_PROMPT = `You are the Lift Log journal assistant. This is a one-time onboarding conversation to help you understand who the user is.
+
+CRITICAL RULES — NEVER VIOLATE:
+1. Identify yourself as an AI in your very first message.
+2. Warm, curious tone — this is the only conversation in this app that should feel like getting to know someone.
+3. No scoring. No data collection. No numerical questions.
+4. Ask about: their work or professional life, their training goals and why they matter, what else matters to their wellbeing beyond training.
+5. Open questions only. Never ask them to rate, score, or categorise anything.
+6. Maximum 12 exchanges (user + assistant combined). Do not drag it out.
+7. Do not offer advice, emotional support, or therapy. If the user discloses something difficult, acknowledge briefly and move on — do not explore it.
+8. No therapeutic language. No clinical framing. No asking how things make them feel.
+
+KEYWORD PROTOCOL — IMMEDIATE STOP:
+If the user writes anything suggesting self-harm, crisis, suicidal ideation, or acute mental health distress — STOP immediately.
+Reply ONLY with this exact fixed text:
+"Something in what you've written suggests you might benefit from talking to someone directly. Lift Log isn't the right tool for this — but these services are free and available now: Samaritans — call 116 123 (24/7) | Shout — text SHOUT to 85258 (24/7) | NHS 111 — call 111, select option 2 (24/7). Your previous entries are safe — come back when you're ready."
+Do not continue. Do not call any tool.
+
+OPENING — your first message must be:
+"I'm your Lift Log journal assistant — I'm an AI. Before your first prompts, I'd like to get a quick sense of who you are and what you're working toward. Tell me a bit about yourself — what do you do, and what are you trying to achieve with your training?"
+
+ENDING — when you have a solid sense of the user's work, training goals, and what matters to them (after at least 6 exchanges), call the complete_onboarding tool with a warm closing message. Confirm that their profile is set up and that their first prompts will be waiting tomorrow.`;
+
+const PROMPT_GENERATOR_SYSTEM = `You generate three short reflective journal prompts for a fitness app user. Each prompt should feel personal and invite genuine reflection — not a tick-box answer.
+
+RULES:
+- Maximum 30 words per prompt.
+- Each prompt ends with a question mark.
+- No therapeutic language. No clinical framing. No "how does that make you feel?" style questions.
+- Do not ask the user to rate or score anything numerically.
+- Vary the angle of each prompt — they should not feel like variations of the same question.
+
+PROMPT 1 — Training & Progress:
+If the user has fewer than 5 sessions logged for any exercise, ask open questions about their training goals, what they're working toward, and how they feel about their early progress.
+If they have 5+ sessions, draw on recent session data and trends. Focus on the emotional and motivational dimension — not a workout summary. Ask about confidence, direction, effort, or what the numbers mean to them personally.
+
+PROMPT 2 — Profile-informed:
+If this is one of the user's first 5 journal entries, ask a warm 'get to know you' style question.
+If they have 5+ entries, draw from the user profile, recent wellness score patterns, and themes from recent entries. Surface something specific and relevant — not generic.
+
+PROMPT 3 — Open / Broader:
+A broader question. May relate to life priorities, goals beyond training, or themes from the profile or recent entries. More open-ended and varied than prompts 1 and 2.
+
+Call generate_prompts with your three prompts.`;
+
+const PROFILE_UPDATE_SYSTEM = `You maintain the user profile for a fitness journalling app. Update the profile based on the new journal entry and context provided.
+
+The profile has six sections — always use these exact headings:
+## Training focus
+## Work and life context
+## Life priorities
+## Wellness patterns
+## Recent themes
+## Notable patterns
+
+RULES:
+- The update is evolutionary. Refine and add. Do not rewrite from scratch unless something is clearly outdated.
+- Keep the full profile under 600 words.
+- No clinical or therapeutic language.
+- Do not characterise the user's emotional state in subjective terms — observe patterns in data and what they have written.
+- Wellness patterns: observe scored data only (sleep, stress, feed numbers). Do not summarise emotional content. Leave sparse until at least 2 weeks of check-in data exists.
+- Notable patterns: cross-domain connections between training performance, wellness scores, and journal themes. Leave sparse until patterns genuinely emerge.
+- Return ONLY the updated profile text with section headings. No preamble or explanation.`;
+
+const INITIAL_PROFILE_SYSTEM = `You are generating an initial user profile for a fitness journalling app from a first conversation with the user.
+
+The profile has six sections — always use these exact headings:
+## Training focus
+## Work and life context
+## Life priorities
+## Wellness patterns
+## Recent themes
+## Notable patterns
+
+RULES:
+- Base the profile entirely on what was shared in the conversation. Do not invent or extrapolate.
+- Keep the profile under 400 words total.
+- Wellness patterns, Recent themes, and Notable patterns should be left sparse — note briefly that these will develop over time.
+- No clinical language. No therapeutic framing.
+- Return ONLY the profile text with section headings. No preamble or explanation.`;
+
+const JOURNAL_SAFETY_REDIRECT = `Something in what you've written suggests you might benefit from talking to someone directly. Lift Log isn't the right tool for this — but these services are free and available now:
+
+Samaritans — call 116 123 (24/7)
+Shout — text SHOUT to 85258 (24/7)
+NHS 111 — call 111, select option 2 (24/7)
+CALM — call 0800 58 58 58 (5pm–midnight)
+
+Your previous entries are safe — come back when you're ready.`;
+
+// Keywords that trigger the safety redirect on journal submission
+const SAFETY_KEYWORDS = [
+  'kill myself', 'killing myself', 'end my life', 'end it all', 'want to die',
+  'suicidal', 'suicide', 'self-harm', 'self harm', 'hurt myself', 'hurting myself',
+  'cutting myself', 'not worth living', 'no point in living', 'can\'t go on',
+  'can\'t cope anymore', 'hopeless', 'helpless', 'crisis', 'purging', 'not eating',
+  'starving myself',
+];
+
+function containsSafetyKeyword(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return SAFETY_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+// ── Claude API helpers ────────────────────────────────────────────────────────
 
 async function callClaude(env, systemPrompt, messages, tool) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -220,6 +336,33 @@ async function callClaude(env, systemPrompt, messages, tool) {
     throw new Error(`Claude API error ${response.status}: ${err}`);
   }
 
+  return response.json();
+}
+
+async function callSonnet(env, systemPrompt, messages, tool) {
+  const body = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages,
+  };
+  if (tool) {
+    body.tools = [tool];
+    body.tool_choice = { type: 'any' };
+  }
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Sonnet API error ${response.status}: ${err}`);
+  }
   return response.json();
 }
 
@@ -780,6 +923,480 @@ async function handleCoachingSkip(request, env) {
   return jsonResponse({ ok: true });
 }
 
+// ── Journal handlers ─────────────────────────────────────────────────────────
+
+/**
+ * GET /journal/onboarding/status
+ * Returns whether the onboarding conversation has been completed and,
+ * if in progress, the existing message history for tab-close recovery.
+ */
+async function handleJournalOnboardingStatus(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  const user = await env.DB.prepare('SELECT onboarding_complete FROM users WHERE id = ?').bind(userId).first();
+  if (!user) return jsonResponse({ error: 'User not found' }, 404);
+
+  if (user.onboarding_complete) return jsonResponse({ complete: true, in_progress: false });
+
+  const conv = await env.DB.prepare(
+    'SELECT messages, status FROM journal_onboarding_conversations WHERE userId = ? ORDER BY id DESC LIMIT 1'
+  ).bind(userId).first();
+
+  if (!conv || conv.status === 'complete') return jsonResponse({ complete: false, in_progress: false });
+
+  return jsonResponse({
+    complete: false,
+    in_progress: true,
+    messages: JSON.parse(conv.messages || '[]'),
+  });
+}
+
+/**
+ * POST /journal/onboarding/message
+ * Send a user message in the onboarding conversation; receive the next assistant reply.
+ * Body: { content }
+ * On completion: generates initial profile and marks onboarding done.
+ */
+async function handleJournalOnboardingMessage(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid body' }, 400); }
+
+  const { content } = body ?? {};
+  if (!content || typeof content !== 'string') return jsonResponse({ error: 'content required' }, 400);
+
+  // Safety check on user input
+  if (containsSafetyKeyword(content)) {
+    return jsonResponse({ reply: JOURNAL_SAFETY_REDIRECT, complete: false, flagged: true });
+  }
+
+  const now = new Date().toISOString();
+
+  // Find or create the onboarding conversation row
+  let conv = await env.DB.prepare(
+    'SELECT id, messages, status FROM journal_onboarding_conversations WHERE userId = ? ORDER BY id DESC LIMIT 1'
+  ).bind(userId).first();
+
+  let messages = [];
+  let convId;
+
+  if (!conv) {
+    // First message — create the row with the opening assistant message baked in
+    const opening = "I'm your Lift Log journal assistant — I'm an AI. Before your first prompts, I'd like to get a quick sense of who you are and what you're working toward. Tell me a bit about yourself — what do you do, and what are you trying to achieve with your training?";
+    messages = [{ role: 'assistant', content: opening }];
+    const result = await env.DB.prepare(
+      'INSERT INTO journal_onboarding_conversations (userId, messages, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)'
+    ).bind(userId, JSON.stringify(messages), 'in_progress', now, now).run();
+    convId = result.meta.last_row_id;
+  } else {
+    if (conv.status === 'complete') return jsonResponse({ error: 'Onboarding already complete' }, 400);
+    messages = JSON.parse(conv.messages || '[]');
+    convId = conv.id;
+  }
+
+  messages.push({ role: 'user', content });
+
+  const COMPLETE_TOOL = {
+    name: 'complete_onboarding',
+    description: 'Call this when you have gathered enough context about the user (after at least 6 exchanges). Ends the onboarding and triggers profile generation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        closing_message: { type: 'string', description: 'A warm closing message for the user confirming their profile is set up.' },
+      },
+      required: ['closing_message'],
+    },
+  };
+
+  let claudeRes;
+  try {
+    claudeRes = await callSonnet(env, ONBOARDING_PROMPT, messages, COMPLETE_TOOL);
+  } catch (err) {
+    console.error('Sonnet error in /journal/onboarding/message:', err);
+    return jsonResponse({ error: 'AI service unavailable — please try again' }, 503);
+  }
+
+  let replyText = '';
+  let toolInput = null;
+
+  for (const block of claudeRes.content ?? []) {
+    if (block.type === 'text') replyText = block.text;
+    if (block.type === 'tool_use' && block.name === 'complete_onboarding') toolInput = block.input;
+  }
+
+  if (toolInput) {
+    const closingMessage = toolInput.closing_message || 'All set. Your first prompts will be waiting tomorrow.';
+    if (closingMessage) messages.push({ role: 'assistant', content: closingMessage });
+
+    await env.DB.prepare(
+      'UPDATE journal_onboarding_conversations SET messages = ?, status = ?, updatedAt = ? WHERE id = ?'
+    ).bind(JSON.stringify(messages), 'complete', now, convId).run();
+
+    // Generate initial profile from the conversation (non-blocking)
+    env.waitUntil?.(generateInitialProfile(userId, messages, env));
+
+    return jsonResponse({ reply: closingMessage, complete: true });
+  }
+
+  // Normal turn
+  if (replyText) messages.push({ role: 'assistant', content: replyText });
+
+  await env.DB.prepare(
+    'UPDATE journal_onboarding_conversations SET messages = ?, updatedAt = ? WHERE id = ?'
+  ).bind(JSON.stringify(messages), now, convId).run();
+
+  return jsonResponse({ reply: replyText, complete: false });
+}
+
+async function generateInitialProfile(userId, messages, env) {
+  try {
+    const conversationText = messages
+      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n');
+
+    const claudeRes = await callSonnet(env, INITIAL_PROFILE_SYSTEM, [
+      { role: 'user', content: `Generate the initial user profile from this onboarding conversation:\n\n${conversationText}` },
+    ], null);
+
+    const profileText = claudeRes.content?.[0]?.text ?? '';
+    const now = new Date().toISOString();
+
+    await env.DB.prepare(
+      'UPDATE users SET profile_text = ?, profile_updated_at = ?, onboarding_complete = 1 WHERE id = ?'
+    ).bind(profileText, now, userId).run();
+  } catch (err) {
+    console.error('Initial profile generation error:', err);
+    // Mark onboarding complete even if profile generation fails — don't block the user
+    await env.DB.prepare('UPDATE users SET onboarding_complete = 1 WHERE id = ?').bind(userId).run();
+  }
+}
+
+/**
+ * GET /journal/status?date=YYYY-MM-DD
+ * Returns routing state for the journal module on a given day.
+ */
+async function handleJournalStatus(url, request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  const date = url.searchParams.get('date');
+  if (!date) return jsonResponse({ error: 'date required' }, 400);
+
+  const user = await env.DB.prepare('SELECT onboarding_complete FROM users WHERE id = ?').bind(userId).first();
+  if (!user) return jsonResponse({ error: 'User not found' }, 404);
+
+  if (!user.onboarding_complete) {
+    const conv = await env.DB.prepare(
+      'SELECT status FROM journal_onboarding_conversations WHERE userId = ? ORDER BY id DESC LIMIT 1'
+    ).bind(userId).first();
+    return jsonResponse({
+      onboarding_complete: false,
+      onboarding_in_progress: !!(conv && conv.status === 'in_progress'),
+      submitted_today: false,
+      prompts_generated: false,
+    });
+  }
+
+  const [entry, prompts] = await Promise.all([
+    env.DB.prepare('SELECT id FROM journal_entries WHERE userId = ? AND date = ?').bind(userId, date).first(),
+    env.DB.prepare('SELECT id FROM journal_prompts WHERE userId = ? AND date = ?').bind(userId, date).first(),
+  ]);
+
+  return jsonResponse({
+    onboarding_complete: true,
+    onboarding_in_progress: false,
+    submitted_today: !!entry,
+    prompts_generated: !!prompts,
+  });
+}
+
+/**
+ * GET /journal/prompts?date=YYYY-MM-DD
+ * Returns today's prompts. Generates them via Sonnet if not yet created.
+ */
+async function handleJournalPrompts(url, request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  const date = url.searchParams.get('date');
+  if (!date) return jsonResponse({ error: 'date required' }, 400);
+
+  // Check onboarding
+  const user = await env.DB.prepare('SELECT onboarding_complete, profile_text FROM users WHERE id = ?').bind(userId).first();
+  if (!user) return jsonResponse({ error: 'User not found' }, 404);
+  if (!user.onboarding_complete) return jsonResponse({ needs_onboarding: true });
+
+  // Return cached prompts if already generated today
+  const cached = await env.DB.prepare(
+    'SELECT prompt_1, prompt_2, prompt_3, refresh_count_1, refresh_count_2, refresh_count_3 FROM journal_prompts WHERE userId = ? AND date = ?'
+  ).bind(userId, date).first();
+
+  if (cached) return jsonResponse({ prompts: cached, generated: false });
+
+  // Generate prompts via Sonnet
+  const prompts = await generateJournalPrompts(userId, date, user.profile_text, env);
+  return jsonResponse({ prompts, generated: true });
+}
+
+async function generateJournalPrompts(userId, date, profileText, env) {
+  // Gather context
+  const [wellnessRow, recentEntries, entryCount, sessionData] = await Promise.all([
+    env.DB.prepare('SELECT sleep_pre, feed_pre, stress_pre FROM daily_wellness WHERE userId = ? AND date = ?').bind(userId, date).first(),
+    env.DB.prepare(
+      `SELECT date, prompt_1_text, response_1, prompt_2_text, response_2, prompt_3_text, response_3
+       FROM journal_entries WHERE userId = ? ORDER BY date DESC LIMIT 3`
+    ).bind(userId).all(),
+    env.DB.prepare('SELECT COUNT(*) as cnt FROM journal_entries WHERE userId = ?').bind(userId).first(),
+    env.DB.prepare(
+      `SELECT s.liftKey, s.date, COUNT(DISTINCT s.id) as session_count
+       FROM sessions s WHERE s.userId = ?
+       GROUP BY s.liftKey ORDER BY s.date DESC LIMIT 10`
+    ).bind(userId).all(),
+  ]);
+
+  const totalEntries = entryCount?.cnt ?? 0;
+  const isEarlyUser = totalEntries < 5;
+
+  const contextParts = [];
+  if (wellnessRow) {
+    contextParts.push(`Today's wellness scores: Sleep ${wellnessRow.sleep_pre ?? 'not recorded'}/5, Feed ${wellnessRow.feed_pre ?? 'not recorded'}/5, Stress ${wellnessRow.stress_pre ?? 'not recorded'}/5`);
+  } else {
+    contextParts.push('Today\'s wellness scores: not yet recorded.');
+  }
+
+  contextParts.push(`User profile:\n${profileText || 'No profile yet.'}`);
+  contextParts.push(`Total journal entries to date: ${totalEntries} (${isEarlyUser ? 'early user — fewer than 5 entries' : 'established user'})`);
+
+  if (recentEntries.results?.length) {
+    const recentText = recentEntries.results.map(e =>
+      `Date: ${e.date}\nQ1: ${e.prompt_1_text}\nA1: ${e.response_1 ?? '(no response)'}\nQ2: ${e.prompt_2_text}\nA2: ${e.response_2 ?? '(no response)'}\nQ3: ${e.prompt_3_text}\nA3: ${e.response_3 ?? '(no response)'}`
+    ).join('\n\n');
+    contextParts.push(`Recent journal entries (last 3 days):\n${recentText}`);
+  }
+
+  if (sessionData.results?.length) {
+    const sessionText = sessionData.results.map(s => `${s.liftKey}: ${s.session_count} sessions logged`).join(', ');
+    contextParts.push(`Recent training: ${sessionText}`);
+  }
+
+  const GENERATE_TOOL = {
+    name: 'generate_prompts',
+    description: 'Output the three journal prompts for today.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        prompt_1: { type: 'string', description: 'Training/progress reflection prompt (max 30 words)' },
+        prompt_2: { type: 'string', description: 'Profile-informed prompt (max 30 words)' },
+        prompt_3: { type: 'string', description: 'Open/broader prompt (max 30 words)' },
+      },
+      required: ['prompt_1', 'prompt_2', 'prompt_3'],
+    },
+  };
+
+  let toolInput = { prompt_1: 'How are you feeling about your training right now?', prompt_2: 'What\'s been on your mind lately outside of the gym?', prompt_3: 'What would make this week feel worthwhile?' };
+
+  try {
+    const claudeRes = await callSonnet(env, PROMPT_GENERATOR_SYSTEM, [
+      { role: 'user', content: `Generate today's three journal prompts using this context:\n\n${contextParts.join('\n\n')}` },
+    ], GENERATE_TOOL);
+
+    for (const block of claudeRes.content ?? []) {
+      if (block.type === 'tool_use' && block.name === 'generate_prompts') {
+        toolInput = block.input;
+      }
+    }
+  } catch (err) {
+    console.error('Prompt generation error:', err);
+    // Fall through to defaults
+  }
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO journal_prompts (userId, date, prompt_1, prompt_2, prompt_3, refresh_count_1, refresh_count_2, refresh_count_3, generatedAt)
+     VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)
+     ON CONFLICT(userId, date) DO UPDATE SET prompt_1 = excluded.prompt_1, prompt_2 = excluded.prompt_2, prompt_3 = excluded.prompt_3, generatedAt = excluded.generatedAt`
+  ).bind(userId, date, toolInput.prompt_1, toolInput.prompt_2, toolInput.prompt_3, now).run();
+
+  return {
+    prompt_1: toolInput.prompt_1, prompt_2: toolInput.prompt_2, prompt_3: toolInput.prompt_3,
+    refresh_count_1: 0, refresh_count_2: 0, refresh_count_3: 0,
+  };
+}
+
+/**
+ * POST /journal/prompts/refresh
+ * Regenerate a single prompt. Body: { date, prompt_number: 1|2|3 }
+ */
+async function handleJournalPromptsRefresh(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid body' }, 400); }
+
+  const { date, prompt_number } = body ?? {};
+  if (!date || ![1, 2, 3].includes(prompt_number)) return jsonResponse({ error: 'date and prompt_number (1/2/3) required' }, 400);
+
+  const user = await env.DB.prepare('SELECT profile_text FROM users WHERE id = ?').bind(userId).first();
+  if (!user) return jsonResponse({ error: 'User not found' }, 404);
+
+  // Generate fresh prompts for context then pick the one we need
+  const fresh = await generateJournalPrompts(userId, date, user.profile_text, env);
+  const newPrompt = fresh[`prompt_${prompt_number}`];
+
+  const col = `prompt_${prompt_number}`;
+  const countCol = `refresh_count_${prompt_number}`;
+
+  await env.DB.prepare(
+    `UPDATE journal_prompts SET ${col} = ?, ${countCol} = ${countCol} + 1 WHERE userId = ? AND date = ?`
+  ).bind(newPrompt, userId, date).run();
+
+  return jsonResponse({ prompt: newPrompt });
+}
+
+/**
+ * POST /journal/entry
+ * Save a submitted journal entry.
+ * Body: { date, prompt_1_text, response_1, prompt_2_text, response_2, prompt_3_text, response_3 }
+ */
+async function handleJournalEntry(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid body' }, 400); }
+
+  const { date, prompt_1_text, response_1, prompt_2_text, response_2, prompt_3_text, response_3 } = body ?? {};
+  if (!date) return jsonResponse({ error: 'date required' }, 400);
+
+  // At least one response required
+  if (!response_1 && !response_2 && !response_3) {
+    return jsonResponse({ error: 'At least one response is required' }, 400);
+  }
+
+  // Enforce 100-word limit per response
+  const wordCount = (text) => text ? text.trim().split(/\s+/).length : 0;
+  if (wordCount(response_1) > 100 || wordCount(response_2) > 100 || wordCount(response_3) > 100) {
+    return jsonResponse({ error: 'Responses must be 100 words or fewer' }, 400);
+  }
+
+  // Safety check across all responses
+  if (containsSafetyKeyword(response_1) || containsSafetyKeyword(response_2) || containsSafetyKeyword(response_3)) {
+    return jsonResponse({ flagged: true, message: JOURNAL_SAFETY_REDIRECT });
+  }
+
+  const now = new Date().toISOString();
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO journal_entries (userId, date, prompt_1_text, response_1, prompt_2_text, response_2, prompt_3_text, response_3, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(userId, date, prompt_1_text ?? null, response_1 ?? null, prompt_2_text ?? null, response_2 ?? null, prompt_3_text ?? null, response_3 ?? null, now).run();
+  } catch (err) {
+    if (err.message?.includes('UNIQUE') || err.message?.includes('unique')) {
+      return jsonResponse({ error: 'Journal entry already submitted for today' }, 409);
+    }
+    console.error('POST /journal/entry D1 error:', err);
+    return jsonResponse({ error: 'Failed to save entry' }, 500);
+  }
+
+  // Trigger background profile update (non-blocking)
+  env.waitUntil?.(updateUserProfile(userId, body, env));
+
+  return jsonResponse({ ok: true });
+}
+
+async function updateUserProfile(userId, entryData, env) {
+  try {
+    const [user, wellnessHistory] = await Promise.all([
+      env.DB.prepare('SELECT profile_text FROM users WHERE id = ?').bind(userId).first(),
+      env.DB.prepare(
+        'SELECT date, sleep_pre, feed_pre, stress_pre FROM daily_wellness WHERE userId = ? ORDER BY date DESC LIMIT 14'
+      ).bind(userId).all(),
+    ]);
+
+    const currentProfile = user?.profile_text || '(no existing profile)';
+
+    const wellnessSummary = wellnessHistory.results?.length
+      ? wellnessHistory.results.map(w => `${w.date}: Sleep ${w.sleep_pre ?? '-'}/5, Feed ${w.feed_pre ?? '-'}/5, Stress ${w.stress_pre ?? '-'}/5`).join('\n')
+      : 'No wellness data yet.';
+
+    const entryText = [
+      entryData.prompt_1_text && `Q: ${entryData.prompt_1_text}\nA: ${entryData.response_1 ?? '(no response)'}`,
+      entryData.prompt_2_text && `Q: ${entryData.prompt_2_text}\nA: ${entryData.response_2 ?? '(no response)'}`,
+      entryData.prompt_3_text && `Q: ${entryData.prompt_3_text}\nA: ${entryData.response_3 ?? '(no response)'}`,
+    ].filter(Boolean).join('\n\n');
+
+    const claudeRes = await callSonnet(env, PROFILE_UPDATE_SYSTEM, [{
+      role: 'user',
+      content: `Current profile:\n${currentProfile}\n\nNew journal entry (${entryData.date}):\n${entryText}\n\nWellness score history (last 14 days):\n${wellnessSummary}\n\nUpdate the profile.`,
+    }], null);
+
+    const updatedProfile = claudeRes.content?.[0]?.text ?? currentProfile;
+    const now = new Date().toISOString();
+
+    await env.DB.prepare(
+      'UPDATE users SET profile_text = ?, profile_updated_at = ? WHERE id = ?'
+    ).bind(updatedProfile, now, userId).run();
+  } catch (err) {
+    console.error('Profile update error:', err);
+    // Non-fatal — previous profile is retained
+  }
+}
+
+/**
+ * GET /journal/history
+ * Returns all past journal entries for the user, newest first.
+ */
+async function handleJournalHistory(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  const { results } = await env.DB.prepare(
+    `SELECT date, prompt_1_text, response_1, prompt_2_text, response_2, prompt_3_text, response_3
+     FROM journal_entries WHERE userId = ? ORDER BY date DESC`
+  ).bind(userId).all();
+
+  return jsonResponse(results ?? []);
+}
+
+/**
+ * GET /profile
+ * Returns the user's current profile text.
+ */
+async function handleGetProfile(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  const user = await env.DB.prepare('SELECT profile_text, profile_updated_at FROM users WHERE id = ?').bind(userId).first();
+  if (!user) return jsonResponse({ error: 'User not found' }, 404);
+
+  return jsonResponse({ profile_text: user.profile_text, profile_updated_at: user.profile_updated_at });
+}
+
+/**
+ * PUT /profile
+ * Manual edit of the user's profile. Writes directly — no AI call.
+ */
+async function handlePutProfile(request, env) {
+  const userId = getUserId(request);
+  if (!userId) return jsonResponse({ error: 'X-User-Id header required' }, 401);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid body' }, 400); }
+
+  const { profile_text } = body ?? {};
+  if (typeof profile_text !== 'string') return jsonResponse({ error: 'profile_text required' }, 400);
+
+  const now = new Date().toISOString();
+  await env.DB.prepare('UPDATE users SET profile_text = ?, profile_updated_at = ? WHERE id = ?').bind(profile_text, now, userId).run();
+
+  return jsonResponse({ ok: true });
+}
+
 // ── Router ───────────────────────────────────────────────────────────────────
 
 export default {
@@ -865,6 +1482,55 @@ export default {
     // /coaching/skip
     if (pathname === '/coaching/skip') {
       if (method === 'POST') return handleCoachingSkip(request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/onboarding/status
+    if (pathname === '/journal/onboarding/status') {
+      if (method === 'GET') return handleJournalOnboardingStatus(request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/onboarding/message
+    if (pathname === '/journal/onboarding/message') {
+      if (method === 'POST') return handleJournalOnboardingMessage(request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/status
+    if (pathname === '/journal/status') {
+      if (method === 'GET') return handleJournalStatus(url, request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/prompts
+    if (pathname === '/journal/prompts') {
+      if (method === 'GET') return handleJournalPrompts(url, request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/prompts/refresh
+    if (pathname === '/journal/prompts/refresh') {
+      if (method === 'POST') return handleJournalPromptsRefresh(request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/entry
+    if (pathname === '/journal/entry') {
+      if (method === 'POST') return handleJournalEntry(request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /journal/history
+    if (pathname === '/journal/history') {
+      if (method === 'GET') return handleJournalHistory(request, env);
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    // /profile
+    if (pathname === '/profile') {
+      if (method === 'GET') return handleGetProfile(request, env);
+      if (method === 'PUT') return handlePutProfile(request, env);
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
 
