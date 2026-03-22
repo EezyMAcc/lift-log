@@ -753,8 +753,8 @@ async function handleCoachingSkip(request, env) {
   try {
     await env.DB.prepare(
       `INSERT INTO daily_wellness (userId, date, coaching_skipped, pre_complete, createdAt)
-       VALUES (?, ?, 1, 1, ?)
-       ON CONFLICT(userId, date) DO UPDATE SET coaching_skipped = 1, pre_complete = 1`
+       VALUES (?, ?, 1, 0, ?)
+       ON CONFLICT(userId, date) DO UPDATE SET coaching_skipped = 1`
     ).bind(userId, date, now).run();
 
     // Record or update the conversation row as skipped
