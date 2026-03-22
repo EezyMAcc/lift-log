@@ -1157,7 +1157,7 @@ async function showModulesScreen() {
     const status = await fetch(`${WORKER_URL}/coaching/status?date=${todayISO()}`, {
       headers: authHeaders(),
     }).then(r => r.json());
-    const done = !!(status.pre_complete || status.coaching_skipped);
+    const done = !!status.pre_complete;
     const btn = document.getElementById('coachAccessBtn');
     btn.disabled = done;
   } catch {
