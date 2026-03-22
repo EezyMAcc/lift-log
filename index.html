@@ -199,6 +199,9 @@
 
 <!-- MODULES SCREEN -->
 <div id="modulesScreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9000;flex-direction:column;align-items:center;padding:60px 24px 32px;">
+  <button onclick="openSupportScreen()" style="position:absolute;top:16px;right:18px;background:none;border:none;cursor:pointer;color:var(--muted);padding:6px;display:flex;align-items:center;" aria-label="Support resources">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg>
+  </button>
   <div class="modules-greeting" id="modulesGreeting">Good to go.</div>
   <div class="modules-list">
     <button class="module-btn" onclick="openWorkoutModule()">
@@ -208,6 +211,45 @@
   </div>
   <div class="modules-footer">
     <button class="coach-access-btn" id="coachAccessBtn" onclick="openCoachFromModules()">Coach</button>
+  </div>
+</div>
+
+<!-- SUPPORT RESOURCES SCREEN -->
+<div id="supportScreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:10000;flex-direction:column;">
+  <div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);">
+    <button onclick="closeSupportScreen()" style="background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;color:var(--muted);margin-right:12px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text);">Support Resources</span>
+  </div>
+  <div style="padding:24px 20px;overflow-y:auto;flex:1;">
+    <p style="font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:28px;">If you're struggling, you don't have to deal with it alone. These services are free, confidential, and available any time.</p>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="background:var(--surface);border-radius:12px;padding:18px 16px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:0.05em;color:var(--text);margin-bottom:4px;">Samaritans</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:2px;">Call 116 123 &nbsp;·&nbsp; samaritans.org</div>
+        <div style="font-size:12px;color:var(--muted);">Free &nbsp;·&nbsp; 24/7</div>
+      </div>
+      <div style="background:var(--surface);border-radius:12px;padding:18px 16px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:0.05em;color:var(--text);margin-bottom:4px;">Shout</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:2px;">Text SHOUT to 85258</div>
+        <div style="font-size:12px;color:var(--muted);">Free &nbsp;·&nbsp; 24/7</div>
+      </div>
+      <div style="background:var(--surface);border-radius:12px;padding:18px 16px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:0.05em;color:var(--text);margin-bottom:4px;">NHS 111</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:2px;">Call 111 &nbsp;·&nbsp; select option 2</div>
+        <div style="font-size:12px;color:var(--muted);">Free &nbsp;·&nbsp; 24/7</div>
+      </div>
+      <div style="background:var(--surface);border-radius:12px;padding:18px 16px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:0.05em;color:var(--text);margin-bottom:4px;">CALM</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:2px;">Call 0800 58 58 58 &nbsp;·&nbsp; thecalmzone.net</div>
+        <div style="font-size:12px;color:var(--muted);">Free &nbsp;·&nbsp; 5pm–midnight, 365 days a year</div>
+      </div>
+      <div style="background:var(--surface);border-radius:12px;padding:18px 16px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:0.05em;color:var(--text);margin-bottom:4px;">Mind</div>
+        <div style="font-size:13px;color:var(--muted);">mind.org.uk — directory of local support services</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1169,6 +1211,14 @@ async function showModulesScreen() {
 function openWorkoutModule() {
   document.getElementById('modulesScreen').style.display = 'none';
   switchView('log');
+}
+
+function openSupportScreen() {
+  document.getElementById('supportScreen').style.display = 'flex';
+}
+
+function closeSupportScreen() {
+  document.getElementById('supportScreen').style.display = 'none';
 }
 
 // Called when user taps coach button on modules screen (pre-session, already skipped or
