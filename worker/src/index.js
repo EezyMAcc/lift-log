@@ -118,7 +118,7 @@ If they dispute one score → follow DISPUTE MECHANIC, then call submit_scores.`
 
 const POST_PROMPT = `PHASE: POST-SESSION
 GOAL: Derive exertion_post, energy_post, mood_post (each 1–5).
-MESSAGE LIMIT: 6 messages total. Users have just trained — keep this very short.
+MESSAGE LIMIT: 10 messages total. If the limit is near and you don't have all three scores, make your best estimate from what you have.
 
 OPENING: Your first message must be:
 "Good work. How did that feel — how hard did you push, and how are you feeling now?"
@@ -126,6 +126,7 @@ OPENING: Your first message must be:
 STRATEGY:
 - One open question should give you enough for all three scores.
 - Do not drag it out.
+- If message limit is approaching and you have partial information, make your best estimate and call submit_scores.
 
 SIGN-OFF:
 "Exertion [X]/5. Energy [X]/5. Mood [X]/5. That's logged."
@@ -780,8 +781,10 @@ async function handleCoachingMessage(request, env) {
   const messages = JSON.parse(conv.messages || '[]');
 
   // Enforce message limit (opening assistant message counts)
-  const limit = phase === 'pre' ? 10 : 6;
-  if (messages.length >= limit) {
+  // Allow one final response when limit reached for graceful handling
+  const limit = phase === 'pre' ? 10 : 10;
+  const isAtLimit = messages.length > limit;
+  if (isAtLimit) {
     return jsonResponse({ error: 'Message limit reached' }, 400);
   }
 
