@@ -164,10 +164,47 @@
   .history-sets{ font-size:12px; color:var(--muted); line-height:1.9; }
   .history-sets span{ color:var(--text); }
 
+  /* LOADING VIEW */
+  .loading-content{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100vh; gap:24px; background:var(--bg);
+  }
+  .loading-emojis{
+    display:flex; gap:16px; font-size:40px;
+  }
+  .loading-emojis span{
+    display:inline-block;
+    animation: wave 1.2s ease-in-out infinite;
+  }
+  .loading-emojis span:nth-child(1){ animation-delay: 0s; }
+  .loading-emojis span:nth-child(2){ animation-delay: 0.15s; }
+  .loading-emojis span:nth-child(3){ animation-delay: 0.3s; }
+  .loading-emojis span:nth-child(4){ animation-delay: 0.45s; }
+  .loading-emojis span:nth-child(5){ animation-delay: 0.6s; }
+  @keyframes wave{
+    0%,100%{ transform:translateY(0) scale(1); }
+    30%{ transform:translateY(-18px) scale(1.15); }
+    50%{ transform:translateY(-12px) scale(1.05); }
+  }
+  .loading-text{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700;
+    font-size:13px; letter-spacing:0.15em; text-transform:uppercase;
+    color:var(--muted);
+  }
 
 </style>
 </head>
 <body>
+
+<!-- LOADING VIEW -->
+<div id="view-loading" class="view active">
+  <div class="loading-content">
+    <div class="loading-emojis">
+      <span>🏋️</span><span>💪</span><span>🔥</span><span>⚡</span><span>🚀</span>
+    </div>
+    <div class="loading-text">Warming up...</div>
+  </div>
+</div>
 
 <!-- LOGIN SCREEN -->
 <div id="loginScreen" style="display:none;position:fixed;inset:0;background:#111;z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:32px;">
@@ -614,7 +651,7 @@ function authHeaders() {
 
 // ── STATE ──────────────────────────────────────────────────────────────────
 let currentLift = null;
-let currentView = 'log';
+let currentView = 'loading';
 let exercises = []; // {key, name}
 let liftState = {}; // key -> {warmup:[], working:[], backoff:[]}
 
@@ -776,13 +813,13 @@ function updateLiftLabels() {
 // ── VIEW SWITCH ──────────────────────────────────────────────────────────────
 async function switchView(v) {
   currentView = v;
-  ['log','charts','last','empty'].forEach(n => {
+  ['log','charts','last','empty','loading'].forEach(n => {
     document.getElementById('view-'+n).classList.toggle('active', n===v);
     if (document.getElementById('nav-'+n)) {
       document.getElementById('nav-'+n).classList.toggle('active', n===v);
     }
   });
-  document.querySelector('.bottom-nav').style.display = (v === 'empty') ? 'none' : '';
+  document.querySelector('.bottom-nav').style.display = (v === 'empty' || v === 'loading') ? 'none' : '';
   if (v==='charts') await renderCharts();
   if (v==='last') await renderLastSession();
 }
@@ -1810,8 +1847,15 @@ function setChatInputEnabled(enabled) {
 // Shared startup sequence used both on normal load (userId already in
 // localStorage) and immediately after a successful login.
 async function bootApp() {
+  // Start a minimum-display timer so loading animation always shows for 3s
+  const minDisplay = new Promise(r => setTimeout(r, 3000));
+
   // Load workout state in the background
   await loadState();
+
+  // If loadState() hit an error or found no exercises, it already
+  // switched to the empty view — respect that and stop here.
+  if (currentView === 'empty') return;
 
   exercises.forEach(e => {
     const ls = getLiftState(e.key);
@@ -1823,9 +1867,9 @@ async function bootApp() {
 
   persistState();
   updateLiftLabels();
-  await renderAll();
 
-  // Check coaching status and route accordingly
+  // Determine route BEFORE rendering anything visible
+  let routeFn;
   try {
     const today = todayISO();
     const status = await fetch(`${WORKER_URL}/coaching/status?date=${today}`, {
@@ -1835,16 +1879,20 @@ async function bootApp() {
     const coachingDone = !!(status.pre_complete || status.coaching_skipped);
 
     if (!coachingDone) {
-      // First open of the day — show coach screen
-      await startCoachingSession('pre', `pre_${today}`, today);
+      routeFn = () => startCoachingSession('pre', `pre_${today}`, today);
     } else {
-      // Coaching already done — go straight to modules
-      showModulesScreen();
+      routeFn = () => showModulesScreen();
     }
   } catch {
-    // If status check fails, skip straight to modules (non-fatal)
-    showModulesScreen();
+    routeFn = () => showModulesScreen();
   }
+
+  // Render workout data in background (hidden behind coach/modules overlay)
+  await renderAll();
+
+  // Wait for minimum loading display time, then route
+  await minDisplay;
+  await routeFn();
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────
@@ -1853,7 +1901,8 @@ document.getElementById('chartsDate').textContent  = todayStr();
 
 (async () => {
   if (!userId) {
-    // First time — show login screen, don't boot app yet
+    // First time — hide loading, show login screen
+    switchView('empty');  // hide loading view
     document.getElementById('loginScreen').style.display = 'flex';
     return;
   }
