@@ -1890,8 +1890,9 @@ async function bootApp() {
   // Render workout data in background (hidden behind coach/modules overlay)
   await renderAll();
 
-  // Wait for minimum loading display time, then route
+  // Wait for minimum loading display time, then hide loading and route
   await minDisplay;
+  switchView('log');
   await routeFn();
 }
 
