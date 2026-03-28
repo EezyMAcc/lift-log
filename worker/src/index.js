@@ -1034,9 +1034,15 @@ async function handleJournalOnboardingMessage(request, env) {
     const closingMessage = toolInput.closing_message || 'All set. Your first prompts will be waiting tomorrow.';
     if (closingMessage) messages.push({ role: 'assistant', content: closingMessage });
 
-    await env.DB.prepare(
-      'UPDATE journal_onboarding_conversations SET messages = ?, status = ?, updatedAt = ? WHERE id = ?'
-    ).bind(JSON.stringify(messages), 'complete', now, convId).run();
+    // Mark conversation complete AND set onboarding_complete immediately
+    // so the flag is persisted even if the user navigates away before
+    // the background profile generation finishes.
+    await Promise.all([
+      env.DB.prepare(
+        'UPDATE journal_onboarding_conversations SET messages = ?, status = ?, updatedAt = ? WHERE id = ?'
+      ).bind(JSON.stringify(messages), 'complete', now, convId).run(),
+      env.DB.prepare('UPDATE users SET onboarding_complete = 1 WHERE id = ?').bind(userId).run(),
+    ]);
 
     // Generate initial profile from the conversation (non-blocking)
     env.waitUntil?.(generateInitialProfile(userId, messages, env));
