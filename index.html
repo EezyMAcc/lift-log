@@ -165,6 +165,7 @@
   .history-sets span{ color:var(--text); }
 
   /* LOADING VIEW */
+  #view-loading{ position:fixed; inset:0; z-index:1000; }
   .loading-content{
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     height:100vh; gap:24px; background:var(--bg);
@@ -1402,6 +1403,12 @@ async function openJournalModule() {
     return;
   }
 
+  // After onboarding but before first prompts are generated, show the "come back tomorrow" message
+  if (!res.prompts_generated && !res.submitted_today) {
+    showJournalOnboardingComplete();
+    return;
+  }
+
   if (res.submitted_today) {
     document.getElementById('journalSubmittedScreen').style.display = 'flex';
     return;
@@ -1417,6 +1424,18 @@ async function openJournalOnboarding(inProgress) {
   screen.style.display = 'flex';
   const container = document.getElementById('journalOnboardingMessages');
   container.innerHTML = '';
+
+  // Ensure input and controls are visible (they may have been hidden from a previous session)
+  const input = document.getElementById('journalOnboardingInput');
+  const sendBtn = document.querySelector('#journalOnboardingScreen button[onclick="sendOnboardingMessage()"]');
+  if (input) {
+    input.style.display = '';
+    input.disabled = false;
+    input.value = '';
+  }
+  if (sendBtn) {
+    sendBtn.style.display = '';
+  }
 
   if (inProgress) {
     // Resume existing conversation
@@ -1488,6 +1507,10 @@ async function sendOnboardingMessage() {
 
 function closeJournalOnboardingComplete() {
   document.getElementById('journalOnboardingCompleteScreen').style.display = 'none';
+}
+
+function showJournalOnboardingComplete() {
+  document.getElementById('journalOnboardingCompleteScreen').style.display = 'flex';
 }
 
 // ── Journal prompts ───────────────────────────────────────────────────────────
@@ -1847,6 +1870,7 @@ function setChatInputEnabled(enabled) {
 // Shared startup sequence used both on normal load (userId already in
 // localStorage) and immediately after a successful login.
 async function bootApp() {
+  switchView('loading');
   // Start a minimum-display timer so loading animation always shows for 3s
   const minDisplay = new Promise(r => setTimeout(r, 3000));
 
